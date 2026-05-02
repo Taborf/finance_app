@@ -95,59 +95,54 @@ class _MainNavigationState extends State<MainNavigation> {
   }
 
   Future<void> _refreshPrices() async {
-    if (_isRefreshing) return;
-    setState(() => _isRefreshing = true);
+  if (_isRefreshing) return;
+  setState(() => _isRefreshing = true);
 
-    // Intestazioni per "ingannare" Yahoo e fargli credere che siamo un browser normale
-    final Map<String, String> headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': '*/*',
-      'Origin': 'https://finance.yahoo.com',
-    };
+  // Headers fondamentali per non essere bloccati da Yahoo su Android
+  final Map<String, String> headers = {
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+    'Accept': 'application/json',
+  };
 
-    try {
-      // 1. Cambio EUR/USD
-      final fxRes = await http.get(
-        Uri.parse('https://query1.finance.yahoo.com/v7/finance/quote?symbols=EURUSD=X'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 10));
-      
-      if (fxRes.statusCode == 200) {
-        final data = jsonDecode(fxRes.body);
-        if (data['quoteResponse']['result'].isNotEmpty) {
-          marketRate = (data['quoteResponse']['result'][0]['regularMarketPrice'] as num).toDouble();
-        }
-      }
-
-      // 2. Titoli
-      final List<String> tickersList = portfolio.map((a) => a['ticker'].toString()).toList();
-      if (tickersList.isNotEmpty) {
-        final symbols = tickersList.join(',');
-        final stockRes = await http.get(
-          Uri.parse('https://query1.finance.yahoo.com/v7/finance/quote?symbols=$symbols'),
-          headers: headers,
-        ).timeout(const Duration(seconds: 10));
-        
-        if (stockRes.statusCode == 200) {
-          final data = jsonDecode(stockRes.body);
-          final List results = data['quoteResponse']['result'] ?? [];
-          for (var res in results) {
-            if (res['regularMarketPrice'] != null) {
-              livePrices[res['symbol']] = (res['regularMarketPrice'] as num).toDouble();
-            }
-          }
-        }
-      }
-    } catch (e) {
-      print("Errore: $e");
-    } finally {
-      setState(() {
-        lastUpdate = DateFormat('dd/MM HH:mm').format(DateTime.now());
-        _isRefreshing = false;
-      });
-      _saveData();
+  try {
+    // 1. Aggiornamento Cambio EUR/USD (usando v8)
+    final fxRes = await http.get(
+      Uri.parse('https://query1.finance.yahoo.com/v8/finance/chart/EURUSD=X?interval=1m&range=1d'),
+      headers: headers,
+    );
+    
+    if (fxRes.statusCode == 200) {
+      final data = jsonDecode(fxRes.body);
+      final price = data['chart']['result'][0]['meta']['regularMarketPrice'];
+      marketRate = (price as num).toDouble();
     }
+
+    // 2. Aggiornamento Titoli
+    final symbols = portfolio.map((a) => a['ticker']).join(',');
+    if (symbols.isNotEmpty) {
+      final stockRes = await http.get(
+        Uri.parse('https://query1.finance.yahoo.com/v7/finance/quote?symbols=$symbols'),
+        headers: headers,
+      );
+      
+      if (stockRes.statusCode == 200) {
+        final data = jsonDecode(stockRes.body);
+        final List results = data['quoteResponse']['result'] ?? [];
+        for (var res in results) {
+          livePrices[res['symbol']] = (res['regularMarketPrice'] as num).toDouble();
+        }
+      }
+    }
+  } catch (e) {
+    print("Errore rete: $e");
+  } finally {
+    setState(() {
+      lastUpdate = DateFormat('HH:mm:ss').format(DateTime.now());
+      _isRefreshing = false;
+    });
+    _saveData();
   }
+}
 
   Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
